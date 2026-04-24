@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>BLACKFIT — Painel Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+<!-- ============== LOGIN ============== -->
+<div id="screen-login" class="screen">
+  <div class="login-card">
+    <div class="logo-mark">
+      <svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="28" fill="none" stroke="currentColor" stroke-width="2"/><path d="M18 24 H42 M18 30 H42 M18 36 H30" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+    </div>
+    <h1>BLACKFIT</h1>
+    <p class="sub">Painel Administrativo</p>
+    <form id="login-form" autocomplete="off">
+      <label>Usuário</label>
+      <input type="text" id="login-user" placeholder="thiago" autocomplete="username" required>
+      <label>Senha</label>
+      <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" required>
+      <button type="submit" class="btn-primary"><span class="lbl">Entrar</span><span class="spinner"></span></button>
+      <p id="login-err" class="err"></p>
+    </form>
+    <p class="footnote">Acesso restrito · BLACKFIT Suplementos</p>
+  </div>
+</div>
+
+<!-- ============== APP ============== -->
+<div id="screen-app" class="screen hidden">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M5 21h14V8l-7-6-7 6v13z" fill="currentColor"/></svg></div>
+      <div>
+        <strong>BLACKFIT</strong>
+        <small>Painel Admin</small>
+      </div>
+    </div>
+    <nav>
+      <a class="nav-item active" data-route="dashboard"><svg class="ic"><use href="#i-chart"/></svg><span>Estatísticas</span></a>
+      <a class="nav-item" data-route="posts"><svg class="ic"><use href="#i-post"/></svg><span>Blog &amp; Notícias</span></a>
+      <a class="nav-item" data-route="content"><svg class="ic"><use href="#i-text"/></svg><span>Textos do Site</span></a>
+      <a class="nav-item" data-route="media"><svg class="ic"><use href="#i-image"/></svg><span>Galeria de Mídia</span></a>
+      <a class="nav-item" data-route="insta"><svg class="ic"><use href="#i-instagram"/></svg><span>Instagram</span></a>
+    </nav>
+    <div class="side-foot">
+      <button class="btn-ghost" id="btn-logout"><svg class="ic"><use href="#i-logout"/></svg> Sair</button>
+    </div>
+  </aside>
+
+  <main class="content" id="content">
+    <header class="topbar">
+      <button class="hamb" id="ham-toggle" aria-label="Menu"><svg class="ic ic-lg"><use href="#i-menu"/></svg></button>
+      <h2 id="page-title">Estatísticas</h2>
+      <div class="top-actions">
+        <a href="https://cgdwiirwtttjykoevett.supabase.co/project/cgdwiirwtttjykoevett" target="_blank" rel="noopener" class="btn-ghost sm" title="Supabase">
+          <svg class="ic"><use href="#i-db"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <section class="route" id="route-dashboard"></section>
+    <section class="route hidden" id="route-posts"></section>
+    <section class="route hidden" id="route-content"></section>
+    <section class="route hidden" id="route-media"></section>
+    <section class="route hidden" id="route-insta"></section>
+  </main>
+
+  <div class="backdrop" id="backdrop"></div>
+</div>
+
+<!-- ============== TOAST ============== -->
+<div id="toasts" class="toasts"></div>
+
+<!-- ============== MODAL ============== -->
+<div id="modal-root" class="modal-root hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="supabase-config.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>
