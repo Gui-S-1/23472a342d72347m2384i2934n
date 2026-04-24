@@ -327,7 +327,7 @@ RENDERS.posts = async function () {
       const id = b.closest('.list-row').dataset.id;
       const post = allPosts.find(p => p.id === id);
       if (!await confirmDialog(`Excluir o post "${post.title}"? Essa ação é irreversível.`)) return;
-      const { error } = await sb.from('posts').delete().eq('id', id);
+      const { error } = await sb.from('posts').delete().eq('id', id).eq('brand', currentBrand.id);
       if (error) return toast('Erro ao excluir: ' + error.message, 'error');
       if (post.cover_url) await deleteFromStoragePath(post.cover_url).catch(()=>{});
       toast('Post excluído', 'success');
@@ -341,7 +341,7 @@ RENDERS.posts = async function () {
 async function editPost(id = null) {
   let post = { title:'', excerpt:'', body:'', cover_url:'', media:[] };
   if (id) {
-    const { data } = await sb.from('posts').select('*').eq('id', id).single();
+    const { data } = await sb.from('posts').select('*').eq('id', id).eq('brand', currentBrand.id).single();
     if (data) post = { ...post, ...data, media: data.media || [] };
   }
   const m = modal(`
@@ -457,7 +457,7 @@ async function editPost(id = null) {
       };
       let res;
       if (id) {
-        res = await sb.from('posts').update(payload).eq('id', id);
+        res = await sb.from('posts').update(payload).eq('id', id).eq('brand', currentBrand.id);
       } else {
         res = await sb.from('posts').insert({ ...payload, brand: currentBrand.id });
       }
@@ -527,7 +527,7 @@ RENDERS.content = async function () {
       const id = b.closest('.list-row').dataset.id;
       const blk = allBlocks.find(x => x.id === id);
       if (!await confirmDialog(`Excluir o bloco "${blk.key}"?`)) return;
-      const { error } = await sb.from('content_blocks').delete().eq('id', id);
+      const { error } = await sb.from('content_blocks').delete().eq('id', id).eq('brand', currentBrand.id);
       if (error) return toast('Erro: ' + error.message, 'error');
       toast('Bloco excluído', 'success'); load();
     });
@@ -575,7 +575,7 @@ RENDERS.content = async function () {
       if (isNew) {
         res = await sb.from('content_blocks').insert({ brand: currentBrand.id, page, key, value, label });
       } else {
-        res = await sb.from('content_blocks').update({ value, label }).eq('id', id);
+        res = await sb.from('content_blocks').update({ value, label }).eq('id', id).eq('brand', currentBrand.id);
       }
       if (res.error) return toast('Erro: ' + res.error.message, 'error');
       toast('Salvo', 'success'); m.close(); load();
@@ -629,7 +629,7 @@ RENDERS.media = async function () {
       const item = data.find(x => x.id === id);
       if (!await confirmDialog(`Excluir "${item.name}"?`)) return;
       await deleteFromStoragePath(item.url).catch(()=>{});
-      await sb.from('media_library').delete().eq('id', id);
+      await sb.from('media_library').delete().eq('id', id).eq('brand', currentBrand.id);
       toast('Removido', 'success'); load();
     });
   }
@@ -678,7 +678,7 @@ RENDERS.insta = async function () {
     list.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
       const id = b.closest('.list-row').dataset.id;
       if (!await confirmDialog('Remover este post do Instagram?')) return;
-      await sb.from('insta_posts').delete().eq('id', id);
+      await sb.from('insta_posts').delete().eq('id', id).eq('brand', currentBrand.id);
       toast('Removido', 'success'); load();
     });
   }
