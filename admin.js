@@ -34,6 +34,20 @@ const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANO
 });
 window.sb = sb;
 
+// ============== MULTI-BRAND ==============
+// Detecta a marca pelo domínio do email do usuário logado.
+// thiago@blackfit.com  → 'blackfit'
+// joana@elegance.com   → 'elegance'
+const BRAND_BY_DOMAIN = {
+  'blackfit.com': { id: 'blackfit', name: 'BLACKFIT', tag: 'Suplementos', color: '#fff', accent: '#ffd700', site: '../site/' },
+  'elegance.com': { id: 'elegance', name: 'ELEGANCE',  tag: 'Fitwear',     color: '#ffd1dc', accent: '#e6859f', site: '../site/elegance/' }
+};
+let currentBrand = { id: 'blackfit', name: 'BLACKFIT', tag: '', site: '../site/' };
+function detectBrand(email) {
+  const dom = (email || '').split('@')[1]?.toLowerCase();
+  return BRAND_BY_DOMAIN[dom] || BRAND_BY_DOMAIN['blackfit.com'];
+}
+
 // ============== UTIL ==============
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => Array.from(root.querySelectorAll(s));
@@ -81,7 +95,8 @@ async function confirmDialog(msg, dangerLabel = 'Excluir') {
 // ============== AUTH ==============
 async function tryAutoLogin() {
   const { data } = await sb.auth.getSession();
-  if (data?.session) {
+  if (data?.session?.user) {
+    currentBrand = detectBrand(data.session.user.email);
     showApp();
   } else {
     showLogin();
@@ -95,7 +110,21 @@ function showLogin() {
 async function showApp() {
   $('#screen-login').classList.add('hidden');
   $('#screen-app').classList.remove('hidden');
+  applyBrandUI();
   goRoute('dashboard');
+}
+function applyBrandUI() {
+  // Atualiza título, cores e link "ver site"
+  document.title = `${currentBrand.name} — Painel Admin`;
+  const brandEls = document.querySelectorAll('[data-brand-name]');
+  brandEls.forEach(el => el.textContent = currentBrand.name);
+  const tagEls = document.querySelectorAll('[data-brand-tag]');
+  tagEls.forEach(el => el.textContent = currentBrand.tag);
+  // Liga órgãos com .brand-accent ao tom da marca
+  if (currentBrand.id === 'elegance') {
+    document.documentElement.style.setProperty('--pri', '#ffd1dc');
+    document.documentElement.style.setProperty('--pri-fg', '#1a1416');
+  }
 }
 
 $('#login-form').addEventListener('submit', async e => {
@@ -106,13 +135,19 @@ $('#login-form').addEventListener('submit', async e => {
   btn.classList.add('loading'); btn.disabled = true;
   const user = $('#login-user').value.trim();
   const pass = $('#login-pass').value;
-  // Permitir digitar só "thiago" → adiciona o domínio
-  const email = user.includes('@') ? user : `${user}@blackfit.com`;
+  // Resolve email pelo nome curto: thiago → thiago@blackfit.com, joana → joana@elegance.com
+  let email = user;
+  if (!user.includes('@')) {
+    const u = user.toLowerCase();
+    if (u === 'joana')  email = 'joana@elegance.com';
+    else                 email = `${u}@blackfit.com`;
+  }
   try {
-    const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+    const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
     if (error) throw error;
+    currentBrand = detectBrand(data.user.email);
     showApp();
-    toast('Bem-vindo!', 'success');
+    toast(`Bem-vindo${currentBrand.id === 'elegance' ? ', Joana!' : ', Thiago!'}`, 'success');
   } catch (e) {
     err.textContent = 'Usuário ou senha incorretos.';
   } finally {
@@ -155,7 +190,7 @@ $('#backdrop').addEventListener('click', () => {
 // ============== STORAGE HELPERS ==============
 async function uploadToStorage(file, folder = 'uploads') {
   const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
-  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+  const path = `${currentBrand.id}/${folder}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
   const { error } = await sb.storage.from('media').upload(path, file, { cacheControl: '3600', upsert: false });
   if (error) throw error;
   const { data } = sb.storage.from('media').getPublicUrl(path);
@@ -193,14 +228,14 @@ RENDERS.dashboard = async function () {
 
   // contadores
   const [{ count: postsC }, { count: instaC }] = await Promise.all([
-    sb.from('posts').select('*', { count: 'exact', head: true }),
-    sb.from('insta_posts').select('*', { count: 'exact', head: true })
+    sb.from('posts').select('*', { count: 'exact', head: true }).eq('brand', currentBrand.id),
+    sb.from('insta_posts').select('*', { count: 'exact', head: true }).eq('brand', currentBrand.id)
   ]);
   $('#s-posts').textContent = postsC ?? 0;
   $('#s-insta').textContent = instaC ?? 0;
 
-  // views (post_views é privado; usar RPC pública post_views_daily — soma)
-  const { data: daily } = await sb.rpc('post_views_daily', { days: 30 });
+  // views (filtradas por brand via RPC)
+  const { data: daily } = await sb.rpc('post_views_daily', { days: 30, p_brand: currentBrand.id });
   const totalViews = (daily || []).reduce((a, r) => a + Number(r.views || 0), 0);
   $('#s-views').textContent = totalViews;
   const today = new Date().toISOString().slice(0,10);
@@ -226,13 +261,13 @@ RENDERS.dashboard = async function () {
   }).join('');
 
   // top posts (ordena por views desc)
-  const { data: posts } = await sb.from('posts').select('id,title,views,created_at').order('views', { ascending: false }).limit(8);
+  const { data: posts } = await sb.from('posts').select('id,title,views,created_at').eq('brand', currentBrand.id).order('views', { ascending: false }).limit(8);
   $('#top-posts').innerHTML = (posts || []).length
     ? posts.map(p => `
       <div class="list-row" style="grid-template-columns:1fr auto auto">
         <div class="info"><strong>${escapeHtml(p.title)}</strong><small>${fmtDate(p.created_at)}</small></div>
         <div class="num">${p.views || 0} views</div>
-        <div class="actions"><a class="btn sm" target="_blank" href="../site/post.html?id=${p.id}"><svg class="ic"><use href="#i-eye"/></svg> Abrir</a></div>
+        <div class="actions"><a class="btn sm" target="_blank" href="${currentBrand.site}post.html?id=${p.id}"><svg class="ic"><use href="#i-eye"/></svg> Abrir</a></div>
       </div>
     `).join('')
     : `<div class="empty">Nenhum post ainda.</div>`;
@@ -261,7 +296,7 @@ RENDERS.posts = async function () {
 
   let allPosts = [];
   async function load() {
-    const { data, error } = await sb.from('posts').select('*').order('created_at', { ascending: false });
+    const { data, error } = await sb.from('posts').select('*').eq('brand', currentBrand.id).order('created_at', { ascending: false });
     if (error) { toast('Erro ao carregar posts: ' + error.message, 'error'); return; }
     allPosts = data || [];
     render();
@@ -281,7 +316,7 @@ RENDERS.posts = async function () {
         <div class="num">${p.views || 0}</div>
         <div class="num">${fmtDate(p.created_at)}</div>
         <div class="actions">
-          <a class="btn sm" target="_blank" href="../site/post.html?id=${p.id}" title="Ver"><svg class="ic"><use href="#i-eye"/></svg></a>
+          <a class="btn sm" target="_blank" href="${currentBrand.site}post.html?id=${p.id}" title="Ver"><svg class="ic"><use href="#i-eye"/></svg></a>
           <button class="btn sm" data-edit><svg class="ic"><use href="#i-edit"/></svg></button>
           <button class="btn sm danger" data-del><svg class="ic"><use href="#i-trash"/></svg></button>
         </div>
@@ -424,7 +459,7 @@ async function editPost(id = null) {
       if (id) {
         res = await sb.from('posts').update(payload).eq('id', id);
       } else {
-        res = await sb.from('posts').insert(payload);
+        res = await sb.from('posts').insert({ ...payload, brand: currentBrand.id });
       }
       if (res.error) throw res.error;
       toast(id ? 'Post atualizado' : 'Post publicado', 'success');
@@ -456,7 +491,7 @@ RENDERS.content = async function () {
   `;
   let allBlocks = [];
   async function load() {
-    const { data, error } = await sb.from('content_blocks').select('*').order('page').order('key');
+    const { data, error } = await sb.from('content_blocks').select('*').eq('brand', currentBrand.id).order('page').order('key');
     if (error) return toast('Erro: ' + error.message, 'error');
     allBlocks = data || [];
     render();
@@ -538,7 +573,7 @@ RENDERS.content = async function () {
       if (!page || !key) return toast('Página e chave obrigatórios', 'error');
       let res;
       if (isNew) {
-        res = await sb.from('content_blocks').insert({ page, key, value, label });
+        res = await sb.from('content_blocks').insert({ brand: currentBrand.id, page, key, value, label });
       } else {
         res = await sb.from('content_blocks').update({ value, label }).eq('id', id);
       }
@@ -567,7 +602,7 @@ RENDERS.media = async function () {
     </div>
   `;
   async function load() {
-    const { data, error } = await sb.from('media_library').select('*').order('created_at', { ascending: false });
+    const { data, error } = await sb.from('media_library').select('*').eq('brand', currentBrand.id).order('created_at', { ascending: false });
     if (error) return toast('Erro: ' + error.message, 'error');
     const list = $('#lib-list');
     if (!data?.length) { list.innerHTML = `<div class="empty"><svg><use href="#i-image"/></svg><p>Nenhuma mídia ainda. Envie a primeira!</p></div>`; return; }
@@ -604,7 +639,7 @@ RENDERS.media = async function () {
       try {
         const up = await uploadToStorage(f, 'library');
         const kind = f.type.startsWith('video') ? 'video' : 'image';
-        await sb.from('media_library').insert({ url: up.url, name: f.name, kind, mime: f.type, size: f.size });
+        await sb.from('media_library').insert({ url: up.url, name: f.name, kind, mime: f.type, size: f.size, brand: currentBrand.id });
         toast(`Enviado: ${f.name}`, 'success');
       } catch (err) {
         toast(`Erro em ${f.name}: ${err.message}`, 'error');
@@ -626,7 +661,7 @@ RENDERS.insta = async function () {
     <div class="list" id="insta-list"><div class="empty">Carregando…</div></div>
   `;
   async function load() {
-    const { data, error } = await sb.from('insta_posts').select('*').order('position', { ascending: true });
+    const { data, error } = await sb.from('insta_posts').select('*').eq('brand', currentBrand.id).order('position', { ascending: true });
     if (error) return toast('Erro: ' + error.message, 'error');
     const list = $('#insta-list');
     if (!data?.length) { list.innerHTML = `<div class="empty"><svg><use href="#i-instagram"/></svg><p>Nenhum post adicionado ainda.</p></div>`; return; }
@@ -672,7 +707,7 @@ RENDERS.insta = async function () {
       const url = $('#ig-url').value.trim();
       const position = parseInt($('#ig-pos').value || '0', 10);
       if (!/^https?:\/\/(www\.)?instagram\.com\//i.test(url)) return toast('URL inválida', 'error');
-      const { error } = await sb.from('insta_posts').insert({ url, position });
+      const { error } = await sb.from('insta_posts').insert({ url, position, brand: currentBrand.id });
       if (error) return toast('Erro: ' + error.message, 'error');
       toast('Adicionado', 'success'); m.close(); load();
     };

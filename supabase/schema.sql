@@ -9,21 +9,36 @@ create extension if not exists pgcrypto;
 
 -- ============== TABELAS ==============
 
+-- Marcas (brands) — cada admin/usuário cuida da SUA marca
+-- Valores aceitos: 'blackfit' | 'elegance'
+
 -- Blocos de conteúdo editáveis (textos do site)
 create table if not exists public.content_blocks (
   id          bigserial primary key,
+  brand       text not null default 'blackfit',
   page        text not null,
   key         text not null,
   value       text not null default '',
   type        text not null default 'text',
   label       text,
   updated_at  timestamptz not null default now(),
-  unique (page, key)
+  unique (brand, page, key)
 );
+alter table public.content_blocks add column if not exists brand text not null default 'blackfit';
+-- garante a unique correta caso a tabela já existisse
+do $$ begin
+  if exists (select 1 from pg_constraint where conname = 'content_blocks_page_key_key') then
+    alter table public.content_blocks drop constraint content_blocks_page_key_key;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'content_blocks_brand_page_key_key') then
+    alter table public.content_blocks add constraint content_blocks_brand_page_key_key unique (brand, page, key);
+  end if;
+end $$;
 
 -- Posts do blog
 create table if not exists public.posts (
   id          bigserial primary key,
+  brand       text not null default 'blackfit',
   title       text not null,
   slug        text,
   excerpt     text default '',
@@ -35,8 +50,11 @@ create table if not exists public.posts (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
+alter table public.posts add column if not exists brand text not null default 'blackfit';
+alter table public.posts add column if not exists media jsonb not null default '[]'::jsonb;
 create index if not exists posts_created_idx on public.posts (created_at desc);
-create index if not exists posts_views_idx on public.posts (views desc);
+create index if not exists posts_brand_idx on public.posts (brand, created_at desc);
+create index if not exists posts_views_idx on public.posts (brand, views desc);
 
 -- (legacy) — mídia normalizada (mantida por compatibilidade)
 create table if not exists public.post_media (
@@ -61,15 +79,18 @@ create index if not exists post_views_post_time on public.post_views (post_id, c
 -- Posts do Instagram embedados
 create table if not exists public.insta_posts (
   id          bigserial primary key,
+  brand       text not null default 'blackfit',
   url         text not null,
   caption     text default '',
   position    int not null default 0,
   created_at  timestamptz not null default now()
 );
+alter table public.insta_posts add column if not exists brand text not null default 'blackfit';
 
--- Library global de mídia
+-- Library global de mídia (por marca)
 create table if not exists public.media_library (
   id          bigserial primary key,
+  brand       text not null default 'blackfit',
   url         text not null,
   name        text,
   kind        text not null default 'image',  -- image | video
@@ -77,6 +98,7 @@ create table if not exists public.media_library (
   size        bigint,
   created_at  timestamptz not null default now()
 );
+alter table public.media_library add column if not exists brand text not null default 'blackfit';
 
 -- ============== TRIGGERS ==============
 create or replace function public.touch_updated_at() returns trigger as $$
@@ -149,21 +171,23 @@ $$;
 revoke all on function public.bump_view(bigint,text,text) from public;
 grant execute on function public.bump_view(bigint,text,text) to anon, authenticated;
 
--- RPC: views agregadas por dia (pro dashboard)
-create or replace function public.post_views_daily(days integer default 30)
+-- RPC: views agregadas por dia (pro dashboard) — filtrada por marca
+create or replace function public.post_views_daily(days integer default 30, p_brand text default null)
 returns table (day date, views integer)
 language sql
 security definer
 set search_path = public
 as $$
-  select date_trunc('day', created_at)::date as day,
+  select date_trunc('day', v.created_at)::date as day,
          count(*)::int as views
-  from public.post_views
-  where created_at >= (now() - (days || ' days')::interval)
+  from public.post_views v
+  join public.posts p on p.id = v.post_id
+  where v.created_at >= (now() - (days || ' days')::interval)
+    and (p_brand is null or p.brand = p_brand)
   group by 1
   order by 1 desc;
 $$;
-grant execute on function public.post_views_daily(integer) to authenticated;
+grant execute on function public.post_views_daily(integer, text) to authenticated;
 
 -- ============== RLS ==============
 alter table public.content_blocks enable row level security;
@@ -215,48 +239,80 @@ drop policy if exists "media auth update" on storage.objects;
 create policy "media auth update" on storage.objects for update using (bucket_id = 'media' and auth.role() = 'authenticated');
 
 -- ============== SEED: BLOCOS DE CONTEÚDO ==============
-insert into public.content_blocks (page, key, value, type, label) values
+-- ====== MARCA BLACKFIT (Thiago) ======
+insert into public.content_blocks (brand, page, key, value, type, label) values
   -- ===== GLOBAL =====
-  ('global','whatsapp_number',  '5562999999999',                                                'text','WhatsApp (só dígitos, com 55+DDD)'),
-  ('global','whatsapp_group',   'https://chat.whatsapp.com/SUBSTITUIR-PELO-LINK-DO-GRUPO',     'text','Link do Grupo VIP do WhatsApp'),
-  ('global','instagram_handle', 'blackfit_oficial',                                             'text','@ do Instagram (sem @)'),
-  ('global','address_line',     'Black Fit Suplementos · Hidrolândia · GO',                    'text','Endereço exibido no rodapé'),
-  ('global','footer_tagline',   'Combustível para a sua melhor versão.',                        'text','Frase do rodapé'),
+  ('blackfit','global','whatsapp_number',  '5562954410900',                                                'text','WhatsApp Thiago (só dígitos, com 55+DDD)'),
+  ('blackfit','global','whatsapp_text',    'Olá Thiago! Vim pelo site e quero saber mais.',               'text','Mensagem padrão pré-preenchida no WhatsApp'),
+  ('blackfit','global','whatsapp_group',   'https://chat.whatsapp.com/GxvmQLbBsKxHz90eazilZR?mode=gi_t',  'text','Link do Grupo VIP de Ofertas'),
+  ('blackfit','global','instagram_handle', 'blackfit_oficial',                                             'text','@ do Instagram (sem @)'),
+  ('blackfit','global','address_line',     'Black Fit Suplementos · Hidrolândia · GO',                    'text','Endereço exibido no rodapé'),
+  ('blackfit','global','footer_tagline',   'Combustível para a sua melhor versão.',                        'text','Frase do rodapé'),
   -- ===== HOME =====
-  ('home','hero_eyebrow',       'Suplementação · Estilo · Performance',                         'text','Texto pequeno acima do título'),
-  ('home','hero_morph',         'FORÇA|FOCO|ENERGIA|RESULTADO|ATITUDE',                         'text','Palavras alternadas no hero (separe com |)'),
-  ('home','hero_lead',          'Combustível para a sua melhor versão. Ultrapasse seus limites diários com a fórmula dos campeões.','text','Subtítulo do hero'),
-  ('home','stat1_value',        '3000',                                                          'text','Estatística 1 — número'),
-  ('home','stat1_label',        'Clientes Atendidos & Satisfeitos',                              'text','Estatística 1 — rótulo'),
-  ('home','stat2_value',        '1000',                                                          'text','Estatística 2 — número'),
-  ('home','stat2_label',        'Bioimpedâncias Realizadas',                                     'text','Estatística 2 — rótulo'),
-  ('home','quote',              'Não pare quando estiver doendo. Pare apenas quando o treino estiver feito.','text','Frase motivacional'),
-  ('home','bio_title_strong',   'BIOIMPEDÂNCIA',                                                 'text','Bioimpedância — título'),
-  ('home','bio_intro',          'Conhece o seu corpo de verdade? A bioimpedância é o exame que mostra tudo que a balança esconde.','text','Bioimpedância — intro'),
+  ('blackfit','home','hero_eyebrow',       'Suplementação · Estilo · Performance',                         'text','Texto pequeno acima do título'),
+  ('blackfit','home','hero_morph',         'FORÇA|FOCO|ENERGIA|RESULTADO|ATITUDE',                         'text','Palavras alternadas no hero (separe com |)'),
+  ('blackfit','home','hero_lead',          'Combustível para a sua melhor versão. Ultrapasse seus limites diários com a fórmula dos campeões.','text','Subtítulo do hero'),
+  ('blackfit','home','stat1_value',        '3000',                                                          'text','Estatística 1 — número'),
+  ('blackfit','home','stat1_label',        'Clientes Atendidos & Satisfeitos',                              'text','Estatística 1 — rótulo'),
+  ('blackfit','home','stat2_value',        '1000',                                                          'text','Estatística 2 — número'),
+  ('blackfit','home','stat2_label',        'Bioimpedâncias Realizadas',                                     'text','Estatística 2 — rótulo'),
+  ('blackfit','home','quote',              'Não pare quando estiver doendo. Pare apenas quando o treino estiver feito.','text','Frase motivacional'),
+  ('blackfit','home','bio_title_strong',   'BIOIMPEDÂNCIA',                                                 'text','Bioimpedância — título'),
+  ('blackfit','home','bio_intro',          'Conhece o seu corpo de verdade? A bioimpedância é o exame que mostra tudo que a balança esconde.','text','Bioimpedância — intro'),
   -- ===== SOBRE =====
-  ('sobre','hero_title',        'Mais que loja. Sua parceira de transformação.',                'text','Título principal'),
-  ('sobre','hero_lead',         'Há mais de uma década entregando suplementação séria, atendimento próximo e resultado real.','text','Subtítulo'),
-  ('sobre','mission',           'Levar suplementação confiável e atendimento humano para quem busca evolução real.','text','Nossa Missão'),
-  ('sobre','vision',            'Ser referência em performance e estilo de vida fitness em Goiás.','text','Nossa Visão'),
-  ('sobre','values',            'Transparência · Resultado · Comunidade · Excelência',           'text','Nossos Valores (separar por ·)'),
+  ('blackfit','sobre','hero_title',        'Mais que loja. Sua parceira de transformação.',                'text','Título principal'),
+  ('blackfit','sobre','hero_lead',         'Há mais de uma década entregando suplementação séria, atendimento próximo e resultado real.','text','Subtítulo'),
+  ('blackfit','sobre','mission',           'Levar suplementação confiável e atendimento humano para quem busca evolução real.','text','Nossa Missão'),
+  ('blackfit','sobre','vision',            'Ser referência em performance e estilo de vida fitness em Goiás.','text','Nossa Visão'),
+  ('blackfit','sobre','values',            'Transparência · Resultado · Comunidade · Excelência',           'text','Nossos Valores (separar por ·)'),
   -- ===== SUPLEMENTOS =====
-  ('suplementos','hero_title',  'O arsenal completo do atleta',                                  'text','Título'),
-  ('suplementos','hero_lead',   'Whey, creatina, pré-treino, vitaminas. As melhores marcas do mercado, escolhidas a dedo.','text','Subtítulo'),
-  -- ===== ROUPAS =====
-  ('roupas','hero_title',       'ELEGANCE FITWEAR',                                              'text','Título'),
-  ('roupas','hero_lead',        'Moda fitness feminina que veste, valoriza e empodera.',         'text','Subtítulo'),
+  ('blackfit','suplementos','hero_title',  'O arsenal completo do atleta',                                  'text','Título'),
+  ('blackfit','suplementos','hero_lead',   'Whey, creatina, pré-treino, vitaminas. As melhores marcas do mercado, escolhidas a dedo.','text','Subtítulo'),
+  -- ===== ROUPAS (link p/ Elegance) =====
+  ('blackfit','roupas','hero_title',       'ELEGANCE FITWEAR',                                              'text','Título'),
+  ('blackfit','roupas','hero_lead',        'Moda fitness feminina que veste, valoriza e empodera.',         'text','Subtítulo'),
   -- ===== CONTATO =====
-  ('contato','hero_title',      'Fala com a gente',                                              'text','Título'),
-  ('contato','hero_lead',       'WhatsApp, Instagram ou venha tomar um café na loja.',           'text','Subtítulo'),
-  ('contato','address_full',    'Av. Principal, 000 — Centro, Hidrolândia/GO',                  'text','Endereço completo'),
-  ('contato','hours',           'Seg a Sáb · 09h às 19h',                                        'text','Horário de funcionamento')
-on conflict (page, key) do nothing;
+  ('blackfit','contato','hero_title',      'Fala com a gente',                                              'text','Título'),
+  ('blackfit','contato','hero_lead',       'WhatsApp, Instagram ou venha tomar um café na loja.',           'text','Subtítulo'),
+  ('blackfit','contato','address_full',    'Av. Principal, 000 — Centro, Hidrolândia/GO',                  'text','Endereço completo'),
+  ('blackfit','contato','hours',           'Seg a Sáb · 09h às 19h',                                        'text','Horário de funcionamento')
+on conflict (brand, page, key) do nothing;
+
+-- ====== MARCA ELEGANCE FITWEAR (Joana) ======
+insert into public.content_blocks (brand, page, key, value, type, label) values
+  -- ===== GLOBAL =====
+  ('elegance','global','whatsapp_number',  '5562962267380',                                                'text','WhatsApp Joana (só dígitos, com 55+DDD)'),
+  ('elegance','global','whatsapp_text',    'Oi Joana! Vim pelo site da Elegance e queria saber mais.',     'text','Mensagem padrão do WhatsApp'),
+  ('elegance','global','whatsapp_group',   'https://chat.whatsapp.com/B864ooWxaIICeBSbVhy1RK?mode=gi_t',  'text','Link do Grupo VIP da Elegance'),
+  ('elegance','global','instagram_handle', 'elegance_fitwear',                                             'text','@ do Instagram (sem @)'),
+  ('elegance','global','address_line',     'Elegance Fitwear · Hidrolândia · GO',                          'text','Endereço do rodapé'),
+  ('elegance','global','footer_tagline',   'Moda fitness que veste, valoriza e empodera.',                  'text','Frase do rodapé'),
+  -- ===== HOME =====
+  ('elegance','home','hero_eyebrow',       'Moda Fitness Feminina',                                         'text','Texto pequeno do hero'),
+  ('elegance','home','hero_title',         'ELEGANCE FITWEAR',                                              'text','Título principal'),
+  ('elegance','home','hero_lead',          'Peças que vestem o seu treino, valorizam o seu corpo e seguem com você o dia inteiro.','text','Subtítulo do hero'),
+  ('elegance','home','cta_primary',        'Conhecer a coleção',                                            'text','Botão principal'),
+  ('elegance','home','cta_secondary',      'Falar com a Joana',                                             'text','Botão secundário'),
+  ('elegance','home','about_title',        'Sobre a Elegance',                                              'text','Título da seção sobre'),
+  ('elegance','home','about_text',         'Cada peça é escolhida pensando em você: tecidos que respiram, modelagem que valoriza, design que acompanha.','text','Texto sobre'),
+  ('elegance','home','quote',              'Você não veste só uma roupa. Você veste atitude.',              'text','Frase de impacto')
+on conflict (brand, page, key) do nothing;
 
 -- ============== FIM ==============
 -- PRÓXIMOS PASSOS NO DASHBOARD:
 -- 1) Authentication → Users → "Add user":
---      Email:   thiago@blackfit.com
---      Senha:   @blackfitsuplee
---      Auto Confirm User: SIM
+--      a) THIAGO (BLACKFIT)
+--         Email:   thiago@blackfit.com
+--         Senha:   @blackfitsuplee
+--         Auto Confirm User: SIM
+--      b) JOANA (ELEGANCE)
+--         Email:   joana@elegance.com
+--         Senha:   @Joana123
+--         Auto Confirm User: SIM
+--
+--    O painel admin detecta a marca pelo domínio do email:
+--      *@blackfit.com  → brand 'blackfit'
+--      *@elegance.com  → brand 'elegance'
+--
 -- 2) O bucket Storage "media" é criado automaticamente acima.
 -- ================================================================
